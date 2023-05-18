@@ -13,11 +13,14 @@ const app = express();
 morgan.token("body", (req, res) => JSON.stringify(req.body) ?? "");
 
 const errorHandler = (err, req, res, next) => {
-  console.log(err.message);
+  console.log(err.name);
   if (err.name === "CastError") {
     return res.status(400).send({ error: "malformatted id" });
+  } else if (err.name === "ValidationError") {
+    return res
+      .status(400)
+      .json({ error: err.message, type: "ValidationError" });
   }
-
   next();
 };
 
@@ -32,7 +35,6 @@ app.use(
 );
 app.use(cors());
 app.use(express.static("build"));
-app.use(errorHandler);
 
 const weeks = ["Mon", "Tues", "Wed", "Thurs", "Fri", "Sat", "Sun"];
 
@@ -51,8 +53,8 @@ const months = [
   "December",
 ];
 
-const isExist = (name) =>
-  persons.filter((item) => item.name === name).length > 0;
+// const isExist = (name) =>
+//   persons.filter((item) => item.name === name).length > 0;
 
 const padding = (num, size) => {
   const s = num.toString();
@@ -87,13 +89,13 @@ app.get("/info", (req, res) => {
   res.send(result);
 });
 
-app.get("/api/persons", (req, res) => {
+app.get("/api/persons", (req, res, next) => {
   Person.find({}).then((persons) => {
     res.json(persons);
   });
 });
 
-app.post("/api/persons", (req, res) => {
+app.post("/api/persons", (req, res, next) => {
   if (!req.body.name) {
     return res.status(400).json({ error: "body missing" });
   }
@@ -104,18 +106,21 @@ app.post("/api/persons", (req, res) => {
     res.status(406).end();
   }
 
-  if (isExist(name)) {
-    res.status(409).end({ error: "name must be unique" });
-  }
+  //   if (isExist(name)) {
+  //     res.status(409).end({ error: "name must be unique" });
+  //   }
 
   const person = new Person({
     name,
     number,
   });
 
-  person.save().then((result) => {
-    res.json(result);
-  });
+  person
+    .save()
+    .then((result) => {
+      res.json(result);
+    })
+    .catch((err) => next(err));
 });
 
 app.get("/api/persons/:id", (req, res, next) => {
@@ -151,13 +156,18 @@ app.put("/api/persons/:id", (req, res, next) => {
     name: req.body.name,
     number: req.body.number,
   };
-  Person.findByIdAndUpdate(req.params.id, person, { new: true })
+  Person.findByIdAndUpdate(req.params.id, person, {
+    new: true,
+    runValidators: true,
+    context: "query",
+  })
     .then((result) => {
       res.json(result);
     })
     .catch((err) => next(err));
 });
 
+app.use(errorHandler);
 app.use(unknownEndpoint);
 
 const PORT = process.env.PORT || 3001;
