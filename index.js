@@ -1,10 +1,29 @@
 const express = require("express");
 const morgan = require("morgan");
 const cors = require("cors");
+const mongoose = require("mongoose");
+require("dotenv").config();
 
+const Person = require("./models/person");
+
+// initialize the express
 const app = express();
 
+// config the middle ware to record the log token
 morgan.token("body", (req, res) => JSON.stringify(req.body) ?? "");
+
+const errorHandler = (err, req, res, next) => {
+  console.log(err.message);
+  if (err.name === "CastError") {
+    return res.status(400).send({ error: "malformatted id" });
+  }
+
+  next();
+};
+
+const unknownEndpoint = (req, res) => {
+  res.status(404).send({ error: "unknown endpoint" });
+};
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -13,6 +32,7 @@ app.use(
 );
 app.use(cors());
 app.use(express.static("build"));
+app.use(errorHandler);
 
 const weeks = ["Mon", "Tues", "Wed", "Thurs", "Fri", "Sat", "Sun"];
 
@@ -31,41 +51,8 @@ const months = [
   "December",
 ];
 
-let persons = [
-  {
-    id: 1,
-    name: "Arto Hellas",
-    number: "040-123456",
-  },
-  {
-    id: 2,
-    name: "Ada Lovelace",
-    number: "39-44-5323523",
-  },
-  {
-    id: 3,
-    name: "Dan Abramov",
-    number: "12-43-234345",
-  },
-  {
-    id: 4,
-    name: "Mary Poppendieck",
-    number: "39-23-6423122",
-  },
-];
-
-const tranArrayToObj = (arr) =>
-  arr.reduce((obj, item) => {
-    obj[item.id] = item;
-    return obj;
-  }, {});
-
-const tranObjToArray = (obj) => Reflect.ownKeys(obj).map((item) => obj[item]);
-
 const isExist = (name) =>
   persons.filter((item) => item.name === name).length > 0;
-
-const personsObj = tranArrayToObj(persons);
 
 const padding = (num, size) => {
   const s = num.toString();
@@ -101,10 +88,16 @@ app.get("/info", (req, res) => {
 });
 
 app.get("/api/persons", (req, res) => {
-  res.json(persons);
+  Person.find({}).then((persons) => {
+    res.json(persons);
+  });
 });
 
 app.post("/api/persons", (req, res) => {
+  if (!req.body.name) {
+    return res.status(400).json({ error: "body missing" });
+  }
+
   const number = req.body.number;
   const name = req.body.name;
   if (!name || !number) {
@@ -115,35 +108,57 @@ app.post("/api/persons", (req, res) => {
     res.status(409).end({ error: "name must be unique" });
   }
 
-  const id = Math.floor(Math.random() * 100000);
-  personsObj[id] = { id, name, number };
-  persons = tranObjToArray(personsObj);
-  res.json(personsObj[id]).status(201).end();
+  const person = new Person({
+    name,
+    number,
+  });
+
+  person.save().then((result) => {
+    res.json(result);
+  });
 });
 
-app.get("/api/persons/:id", (req, res) => {
-  const id = req.params.id;
-
-  const data = personsObj[id];
-  if (data) {
-    res.json(data);
-  } else {
-    res.status(404).end();
-  }
+app.get("/api/persons/:id", (req, res, next) => {
+  Person.findById(req.params.id)
+    .then((person) => {
+      if (person) {
+        res.json(person);
+      } else {
+        res.status(404).end();
+      }
+    })
+    .catch((err) => next(err));
 });
 
-app.delete("/api/persons/:id", (req, res) => {
-  const id = req.params.id;
-
-  const data = personsObj[id];
-  if (data) {
-    delete personsObj[id];
-    persons = tranObjToArray(personsObj);
-    res.status(204).end();
-  } else {
-    res.status(404).end();
-  }
+app.delete("/api/persons/:id", (req, res, next) => {
+  Person.findByIdAndDelete(req.params.id)
+    .then((result) => {
+      res.status(204).end();
+    })
+    .catch((err) => next(err));
 });
+
+app.get("/api/persons/:id", (req, res, next) => {
+  Person.findByIdAndUpdate(req.params.id)
+    .then((result) => {
+      res.json(result);
+    })
+    .catch((err) => next(err));
+});
+
+app.put("/api/persons/:id", (req, res, next) => {
+  const person = {
+    name: req.body.name,
+    number: req.body.number,
+  };
+  Person.findByIdAndUpdate(req.params.id, person, { new: true })
+    .then((result) => {
+      res.json(result);
+    })
+    .catch((err) => next(err));
+});
+
+app.use(unknownEndpoint);
 
 const PORT = process.env.PORT || 3001;
 
