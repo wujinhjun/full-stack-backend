@@ -4,29 +4,28 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
-const Person = require("./models/person");
+const config = require("./utils/config");
+const logger = require("./utils/logger");
+const personRouter = require("./controllers/persons");
+const middleware = require("./utils/middleware");
+
+mongoose.set("strictQuery", false);
+logger.info("connecting to", config.MONGO_URI);
+
+mongoose
+  .connect(config.MONGO_URI)
+  .then((result) => {
+    console.log("connected to MongoDB");
+  })
+  .catch((err) => {
+    console.log(`error connecting to MongoDB: ${err.message}`);
+  });
 
 // initialize the express
 const app = express();
 
 // config the middle ware to record the log token
 morgan.token("body", (req, res) => JSON.stringify(req.body) ?? "");
-
-const errorHandler = (err, req, res, next) => {
-  console.log(err.name);
-  if (err.name === "CastError") {
-    return res.status(400).send({ error: "malformatted id" });
-  } else if (err.name === "ValidationError") {
-    return res
-      .status(400)
-      .json({ error: err.message, type: "ValidationError" });
-  }
-  next();
-};
-
-const unknownEndpoint = (req, res) => {
-  res.status(404).send({ error: "unknown endpoint" });
-};
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -53,9 +52,6 @@ const months = [
   "December",
 ];
 
-// const isExist = (name) =>
-//   persons.filter((item) => item.name === name).length > 0;
-
 const padding = (num, size) => {
   const s = num.toString();
   console.log(s);
@@ -68,6 +64,8 @@ const offsetCalc = (time) => {
   const hours = Math.abs(offsetHours);
   return `GMT${sign}${padding(hours, 2) + padding(0, 2)}`;
 };
+
+let persons = [];
 
 app.get("/", (req, res) => {
   res.send("<h1>Hello World!</h1>");
@@ -89,89 +87,10 @@ app.get("/info", (req, res) => {
   res.send(result);
 });
 
-app.get("/api/persons", (req, res, next) => {
-  Person.find({}).then((persons) => {
-    res.json(persons);
-  });
-});
+app.use("./api/persons", personRouter);
+app.use(middleware.errorHandler);
+app.use(middleware.unknownEndpoint);
 
-app.post("/api/persons", (req, res, next) => {
-  if (!req.body.name) {
-    return res.status(400).json({ error: "body missing" });
-  }
-
-  const number = req.body.number;
-  const name = req.body.name;
-  if (!name || !number) {
-    res.status(406).end();
-  }
-
-  //   if (isExist(name)) {
-  //     res.status(409).end({ error: "name must be unique" });
-  //   }
-
-  const person = new Person({
-    name,
-    number,
-  });
-
-  person
-    .save()
-    .then((result) => {
-      res.json(result);
-    })
-    .catch((err) => next(err));
-});
-
-app.get("/api/persons/:id", (req, res, next) => {
-  Person.findById(req.params.id)
-    .then((person) => {
-      if (person) {
-        res.json(person);
-      } else {
-        res.status(404).end();
-      }
-    })
-    .catch((err) => next(err));
-});
-
-app.delete("/api/persons/:id", (req, res, next) => {
-  Person.findByIdAndDelete(req.params.id)
-    .then((result) => {
-      res.status(204).end();
-    })
-    .catch((err) => next(err));
-});
-
-app.get("/api/persons/:id", (req, res, next) => {
-  Person.findByIdAndUpdate(req.params.id)
-    .then((result) => {
-      res.json(result);
-    })
-    .catch((err) => next(err));
-});
-
-app.put("/api/persons/:id", (req, res, next) => {
-  const person = {
-    name: req.body.name,
-    number: req.body.number,
-  };
-  Person.findByIdAndUpdate(req.params.id, person, {
-    new: true,
-    runValidators: true,
-    context: "query",
-  })
-    .then((result) => {
-      res.json(result);
-    })
-    .catch((err) => next(err));
-});
-
-app.use(errorHandler);
-app.use(unknownEndpoint);
-
-const PORT = process.env.PORT || 3001;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(config.PORT, () => {
+  logger.info(`Server running on port ${config.PORT}`);
 });
