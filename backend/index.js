@@ -87,7 +87,7 @@ app.get("/info", (req, res) => {
   res.send(result);
 });
 
-app.use("./api/persons", personRouter);
+app.use("/api/persons", personRouter);
 app.use(middleware.errorHandler);
 app.use(middleware.unknownEndpoint);
 
